@@ -1,0 +1,130 @@
+{
+    "openrpc": "1.2.6",
+    "info": {
+        "version": "1.0.0",
+        "title": "Mimblewimble CoinSwap",
+        "license": {
+            "name": "MIT"
+        }
+    },
+    "methods": [
+        {
+            "name": "swap",
+            "description": "Submits a UTXO to the first swap node (node 1)",
+            "params": [
+                {
+                    "name": "version",
+                    "description": "The API version used",
+                    "required": true,
+                    "schema": {
+                        "type": "integer"
+                    }
+                },
+                {
+                    "name": "utxo",
+                    "description": "Information about the current UTXO",
+                    "required": true,
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "commitment",
+                            "signature"
+                        ],
+                        "properties": {
+                            "commitment": {
+                                "$ref": "#/components/schemas/Commitment"
+                            },
+                            "signature": {
+                                "$ref": "#/components/schemas/ComSig"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "rounds",
+                    "description": "The data necessary for each MWixnet node",
+                    "required": true,
+                    "schema": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Round"
+                        }
+                    }
+                }
+            ],
+            "result": {
+                "name": "key",
+                "description": "A unique key that can be used to track the status of the mix",
+                "schema": {
+                    "type": "string"
+                }
+            }
+        }
+    ],
+    "components": {
+        "schemas": {
+            "Commitment": {
+                "type": "string",
+                "description": "The UTXO commitment",
+                "minLength": 68,
+                "maxLength": 68,
+                "pattern": "^0x[a-fA-F\\d]+$"
+            },
+            "ComSig": {
+                "type": "string",
+                "description": "The [commitment signature](https://forum.grin.mw/t/comsig-signature-for-mimblewimble-non-interactive-transaction/6976) of the message \"MWIXNET\"",
+                "minLength": 194,
+                "maxLength": 194,
+                "pattern": "^0x[a-fA-F\\d]+$"
+            },
+            "NodeAddress": {
+                "type": "string",
+                "description": "The V3 onion address of the MWixnet node, sans \".onion\"",
+                "minLength": 56,
+                "maxLength": 56,
+                "pattern": "^[a-z2-7]+$"
+            },
+            "X25519_PubKey": {
+                "type": "string",
+                "description": "The ephemeral x25519 public key that was used, along with the \"node_address\", to generate the encryption keys",
+                "minLength": 66,
+                "maxLength": 66,
+                "pattern": "^0x[a-fA-F\\d]+$"
+            },
+            "EncExcess": {
+                "type": "string",
+                "description": "The excess scalar encrypted using label \"excess\" ",
+                "pattern": "^0x[a-fA-F\\d]+$"
+            },
+            "EncRangeProof": {
+                "type": "string",
+                "description": "The range proof encrypted using label \"rangeproof\" (only required for the final round)",
+                "pattern": "^0x[a-fA-F\\d]+$"
+            },
+            "Round": {
+                "title": "Round",
+                "type": "object",
+                "description": "A round will include the node address, an ephemeral x25519 public key generated only for that round, and encrypted fields needed to perform that mix round.\nThe data fields shall be stream encrypted using `ChaCha20-Poly1305(key, data)`. To determine the `key`, first calculate `shared_secret = ECDHE(ephemeral_pubkey, to_x25519(node_address))`, and then compute `key = hkdf(label, shared_secret)`. `label` depends on the field type.",
+                "required": [
+                    "node_address",
+                    "ephemeral_pubkey",
+                    "enc_excess"
+                ],
+                "properties": {
+                    "node_address": {
+                        "$ref": "#/components/schemas/NodeAddress"
+                    },
+                    "ephemeral_pubkey": {
+                        "$ref": "#/components/schemas/X25519_PubKey"
+                    },
+                    "enc_excess": {
+                        "$ref": "#/components/schemas/EncExcess"
+                    },
+                    "enc_rangeproof": {
+                        "$ref": "#/components/schemas/EncRangeProof"
+                    }
+                }
+            }
+        }
+    }
+}
