@@ -10,6 +10,69 @@ use crate::error::{ErrorKind, Result};
 use rand::RngCore;
 use std::cmp;
 
+/// A generalized Schnorr signature with a pedersen commitment value & blinding factors as the keys
+pub const COM_SIGNATURE_SIZE : usize = 96;
+
+pub struct ComSignature(pub [u8; COM_SIGNATURE_SIZE]);
+impl ComSignature {
+	/// Builds a ComSignature from a byte vector. If the vector is too short, it will be
+	/// completed by zeroes. If it's too long, it will be truncated.
+	pub fn from_vec(v: Vec<u8>) -> ComSignature {
+		let mut h = [0; COM_SIGNATURE_SIZE];
+		for i in 0..cmp::min(v.len(), COM_SIGNATURE_SIZE) {
+			h[i] = v[i];
+		}
+		ComSignature(h)
+	}
+
+	#[allow(dead_code)]
+	pub fn sign(_value: u64, _blind: &SecretKey, _msg: &Vec<u8>) -> Result<ComSignature> {
+		// milestone 2 - todo
+		let mut h = [0u8; COM_SIGNATURE_SIZE];
+		for i in 0..COM_SIGNATURE_SIZE {
+			h[i] = i as u8;
+		}
+		Ok(ComSignature(h))
+	}
+
+	pub fn verify(self, _commit: &Commitment, _msg: &Vec<u8>) -> Result<()> {
+		// milestone 2 - todo
+		Ok(())
+    }
+}
+
+impl AsRef<[u8]> for ComSignature {
+	fn as_ref(&self) -> &[u8] {
+		&self.0
+	}
+}
+
+/// Serializes a ComSignature to and from hex
+pub mod comsig_serde {
+	use super::ComSignature;
+	use serde::{Deserialize, Serializer};
+	use grin_util::ToHex;
+
+	/// Serializes a ComSignature as a hex string
+	pub fn serialize<S>(comsig: &ComSignature, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(&comsig.to_hex())
+	}
+
+	/// Creates a ComSignature from a hex string
+	pub fn deserialize<'de, D>(deserializer: D) -> std::result::Result<ComSignature, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		use serde::de::Error;
+		String::deserialize(deserializer)
+			.and_then(|string| grin_util::from_hex(&string).map_err(Error::custom))
+			.and_then(|bytes: Vec<u8>| Ok(ComSignature::from_vec(bytes.to_vec())))
+	}
+}
+
 /// Compute a PublicKey from a SecretKey
 pub fn to_public_key(secret_key: &SecretKey) -> Result<PublicKey> {
     let secp = Secp256k1::new();

@@ -1,4 +1,4 @@
-use failure::{self, Backtrace, Context, Fail};
+use failure::{self, Context, Fail};
 use std::fmt::{self, Display};
 use std::io;
 
@@ -13,6 +13,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Clone, Debug, Eq, Fail, PartialEq)]
 /// MWixnet error types
 pub enum ErrorKind {
+	/// Unsupported payload version
+	#[fail(display = "Unsupported Payload Version")]
+	UnsupportedPayload,
 	/// Error from secp256k1-zkp library
 	#[fail(display = "Secp Error")]
 	SecpError,
@@ -47,6 +50,10 @@ pub enum ErrorKind {
 	HexError(String),
 }
 
+impl std::error::Error for Error {
+	
+}
+
 impl From<io::Error> for Error {
 	fn from(e: io::Error) -> Error {
 		ErrorKind::IOErr(format!("{}", e), e.kind()).into()
@@ -56,16 +63,6 @@ impl From<io::Error> for Error {
 impl From<io::ErrorKind> for Error {
 	fn from(e: io::ErrorKind) -> Error {
 		ErrorKind::IOErr(format!("{}", io::Error::from(e)), e).into()
-	}
-}
-
-impl Fail for Error {
-	fn cause(&self) -> Option<&dyn Fail> {
-		self.inner.cause()
-	}
-
-	fn backtrace(&self) -> Option<&Backtrace> {
-		self.inner.backtrace()
 	}
 }
 

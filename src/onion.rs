@@ -140,9 +140,8 @@ mod tests {
             };
     
             hops.push(types::Hop{
-                pubkey: PublicKey::from_secret_key(&secp, &keys[i]).unwrap(),
+                pubkey: secp::PublicKey::from_secret_key(&secp, &keys[i]).unwrap(),
                 payload: types::Payload{
-                    routing_info: None,
                     excess: excess,
                     rangeproof: proof,
                 }
@@ -152,7 +151,6 @@ mod tests {
         let mut onion_packet = onion::create_onion(&commitment, &session_key, &hops).unwrap();
     
         let mut payload = types::Payload{
-            routing_info: None,
             excess: secp::insecure_rand_secret().unwrap(),
             rangeproof: None
         };

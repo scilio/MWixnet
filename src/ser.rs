@@ -598,3 +598,27 @@ impl<A: Readable, B: Readable, C: Readable, D: Readable> Readable for (A, B, C, 
 		))
 	}
 }
+
+/// Serializes a Vec<u8> to and from hex
+pub mod vec_serde {
+	use serde::{Deserialize, Serializer};
+	use grin_util::ToHex;
+
+	/// Serializes a Vec<u8> as a hex string
+	pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(&bytes.to_hex())
+	}
+
+	/// Creates a Vec<u8> from a hex string
+	pub fn deserialize<'de, D>(deserializer: D) -> std::result::Result<Vec<u8>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		use serde::de::Error;
+		String::deserialize(deserializer)
+			.and_then(|string| grin_util::from_hex(&string).map_err(Error::custom))
+	}
+}
