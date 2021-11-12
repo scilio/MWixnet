@@ -14,7 +14,9 @@ failure = "0.1.8"
 futures = "0.3"
 hmac = { version = "0.11.0", features = ["std"]}
 hyper = { version = "0.14", features = ["full"] }
-jsonrpc-v2 = { version = "0.10.1", default_features = false, features = ["easy-errors", "hyper-integration"] }
+jsonrpc-core = "18.0"
+jsonrpc-derive = "18.0"
+jsonrpc-http-server = "18.0"
 lazy_static = "1"
 rand = "0.8.4"
 serde = { version = "1", features= ["derive"]}

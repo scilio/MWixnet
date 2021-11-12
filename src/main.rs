@@ -10,8 +10,7 @@ mod ser;
 mod server;
 mod types;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret_key = secp::insecure_rand_secret()?; // todo - load from encrypted key file
     let server_config = ServerConfig {
         key: secret_key,
@@ -26,5 +25,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("failed to install CTRL+C signal handler");
     };
 
-    server::listen(&server_config, shutdown_signal).await
+    server::listen(&server_config, shutdown_signal)
 }

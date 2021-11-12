@@ -45,9 +45,6 @@ pub enum ErrorKind {
 	/// When asked to read too much data
 	#[fail(display = "TooLargeReadErr")]
 	TooLargeReadErr,
-	/// Error from from_hex deserialization
-	#[fail(display = "HexError")]
-	HexError(String),
 }
 
 impl std::error::Error for Error {
@@ -75,6 +72,10 @@ impl Display for Error {
 impl Error {
 	pub fn kind(&self) -> ErrorKind {
 		self.inner.get_context().clone()
+	}
+
+	pub fn message(&self) -> String {
+		format!("{}", self).into()
 	}
 }
 

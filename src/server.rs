@@ -3,7 +3,10 @@ use crate::secp::{self, Commitment, ComSignature, SecretKey};
 use crate::ser;
 use crate::types::Onion;
 
-use jsonrpc_v2::{Data, Params};
+use jsonrpc_derive::rpc;
+use jsonrpc_http_server::*;
+use jsonrpc_http_server::jsonrpc_core::*;
+use jsonrpc_core::{Result, Value};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Mutex;
@@ -34,52 +37,72 @@ lazy_static! {
     static ref SERVER_STATE: Mutex<Vec<Submission>> = Mutex::new(Vec::new());
 }
 
-async fn swap(server_config: Data<ServerConfig>, Params(swap): Params<SwapReq>) -> Result<(), jsonrpc_v2::Error> {
-    // milestone 2 - check that commitment is unspent
+#[rpc(server)]
+pub trait Server {
+    #[rpc(name = "swap")]
+    fn swap(&self, swap: SwapReq) -> Result<Value>;
 
-    // Verify commitment signature to ensure caller owns the output
-    let _ = swap.comsig.verify(&swap.onion.commit, &swap.msg)?;
-
-    let peeled = onion::peel_layer(&swap.onion, &(*server_config).key)?;
-    SERVER_STATE.lock().unwrap().push(Submission{
-        excess: peeled.0.excess,
-        input_commit: swap.onion.commit,
-        onion: peeled.1
-    });
-    Ok(())
+    // milestone 3:
+    // fn derive_outputs(&self, entries: Vec<Onion>) -> Result<Value>;
+    // fn derive_kernel(&self, tx: Tx) -> Result<Value>;
 }
 
-/// Takes in entries, peels, then stores results. Re-sorts matrix and sends to next server
-async fn derive_outputs(_server_config: Data<ServerConfig>, Params(_entries): Params<Vec<Onion>>) -> Result<(), jsonrpc_v2::Error> {
-    // milestone 3 - peel onion layer, store and forward
-    Ok(())
+pub struct ServerImpl {
+    server_key: SecretKey,
 }
 
-async fn derive_kernel(_server_config: Data<ServerConfig>, Params(_tx): Params<()>) -> Result<(), jsonrpc_v2::Error> {
-    // milestone 3 - modify kernel excess then forward
-    Ok(())
+impl ServerImpl {
+	pub fn new(server_key: SecretKey) -> Self {
+		ServerImpl { server_key }
+	}
+}
+
+impl Server for ServerImpl {
+    fn swap(&self, swap: SwapReq) -> Result<Value> {
+        // milestone 2 - check that commitment is unspent
+    
+        // Verify commitment signature to ensure caller owns the output
+        let _ = swap.comsig.verify(&swap.onion.commit, &swap.msg)
+            .map_err(|_| jsonrpc_core::Error::invalid_params("ComSignature invalid"))?;
+    
+        let peeled = onion::peel_layer(&swap.onion, &self.server_key)
+            .map_err(|e| jsonrpc_core::Error::invalid_params(e.message()))?;
+        SERVER_STATE.lock().unwrap().push(Submission{
+            excess: peeled.0.excess,
+            input_commit: swap.onion.commit,
+            onion: peeled.1
+        });
+        Ok(Value::String("success".into()))
+    }
+    
 }
 
 /// Spin up the JSON-RPC web server
-pub async fn listen<F>(server_config: &ServerConfig, shutdown_signal: F) -> std::result::Result<(), Box<dyn std::error::Error>>
+pub fn listen<F>(server_config: &ServerConfig, shutdown_signal: F) -> std::result::Result<(), Box<dyn std::error::Error>>
 where
-    F: core::future::Future<Output = ()>,
+    F: futures::future::Future<Output = ()> + Send + 'static,
 {
-    let mut rpc = jsonrpc_v2::Server::new()
-        .with_data(Data::new(server_config.clone()))
-        .with_method("derive_outputs", derive_outputs)
-        .with_method("derive_kernel", derive_kernel);
+	let mut io = IoHandler::new();
+    io.extend_with(ServerImpl::to_delegate(ServerImpl::new(server_config.key.clone())));
 
-    if server_config.is_first {
-        rpc = rpc.with_method("swap", swap);
-    }
+	let server = ServerBuilder::new(io)
+        .cors(DomainsValidation::Disabled)
+        .request_middleware(|request: hyper::Request<hyper::Body>| {
+            if request.uri() == "/v1" {
+                request.into()
+            } else {
+                jsonrpc_http_server::Response::bad_request("Only v1 supported").into()
+            }
+        })
+        .start_http(&server_config.addr)
+        .expect("Unable to start RPC server");
 
-    let web_service = rpc.finish().into_hyper_web_service();
-    let rpc_server = hyper::server::Server::bind(&server_config.addr);
-    rpc_server
-        .serve(web_service)
-        .with_graceful_shutdown(shutdown_signal)
-        .await?;
+    let close_handle = server.close_handle();
+    std::thread::spawn(move || {
+        futures::executor::block_on(shutdown_signal);
+        close_handle.close();
+    });
+    server.wait();
 
     Ok(())
 }
@@ -94,8 +117,13 @@ mod tests {
     use hyper::{Body, Client, Request, Response};
     use tokio::runtime;
 
+    async fn body_to_string(req: Response<Body>) -> String {
+        let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
+        String::from_utf8(body_bytes.to_vec()).unwrap()
+    }
+
     /// Spin up a temporary web service, query the API, then cleanup and return response
-    fn make_request(server_key: secp::SecretKey, req: String) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    fn make_request(server_key: secp::SecretKey, req: String) -> Result<String, Box<dyn std::error::Error>> {
         let server_config = server::ServerConfig { 
             key: server_key,
             addr: TcpListener::bind("127.0.0.1:0")?.local_addr()?,
@@ -104,11 +132,11 @@ mod tests {
 
         let threaded_rt = runtime::Runtime::new()?;
         let (shutdown_sender, shutdown_receiver) = futures::channel::oneshot::channel();
-        let uri = format!("http://{}", server_config.addr);
+        let uri = format!("http://{}/v1", server_config.addr);
 
         // Spawn the server task
         threaded_rt.spawn(async move {
-            server::listen(&server_config, async { shutdown_receiver.await.ok(); }).await.unwrap()
+            server::listen(&server_config, async { shutdown_receiver.await.ok(); }).unwrap()
         });
 
         // Wait for listener
@@ -116,6 +144,7 @@ mod tests {
 
         let do_request = async move {
             let request = Request::post(uri)
+                .header("Content-Type", "application/json")
                 .body(Body::from(req))
                 .unwrap();
 
@@ -123,13 +152,15 @@ mod tests {
         };
 
         let response = threaded_rt.block_on(do_request)?;
+        let response_str: String = threaded_rt.block_on(body_to_string(response));
+
         shutdown_sender.send(()).ok();
 
         // Wait for shutdown
         thread::sleep(Duration::from_millis(500));
         threaded_rt.shutdown_background();
 
-        Ok(response)
+        Ok(response_str)
     }
 
     #[test]
@@ -159,20 +190,22 @@ mod tests {
             comsig: comsig,
         };
 
-        let req = format!("{{\"jsonrpc\": \"2.0\", \"method\": \"swap\", \"params\": {}}}", serde_json::json!(swap));
-        println!("{}", req);
+        let req = format!("{{\"jsonrpc\": \"2.0\", \"method\": \"swap\", \"params\": [{}], \"id\": \"1\"}}", serde_json::json!(swap));
         let response = make_request(server_key, req)?;
-        assert!(response.status().is_success());
+	    let expected = "{\"jsonrpc\":\"2.0\",\"result\":\"success\",\"id\":\"1\"}\n";
+        assert_eq!(response, expected);
         Ok(())
     }
-
 
     #[test]
     fn swap_bad_request() -> Result<(), Box<dyn std::error::Error>> {
         let params = "{ \"param\": \"Not a valid Swap request\" }";
-        let req = format!("{{\"jsonrpc\": \"2.0\", \"method\": \"swap\", \"params\": {}}}", params);
+        let req = format!("{{\"jsonrpc\": \"2.0\", \"method\": \"swap\", \"params\": [{}], \"id\": \"1\"}}", params);
         let response = make_request(secp::insecure_rand_secret()?, req)?;
-        assert!(response.status().is_success());
+	    let expected = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `onion`.\"},\"id\":\"1\"}\n";
+        assert_eq!(response, expected);
         Ok(())
     }
+
+    // milestone 2 - add tests to cover invalid comsig's & inputs not in utxo set
 }
